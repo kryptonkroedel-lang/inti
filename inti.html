@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprechender Intervall-Timer</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --text: #f2f3f5;
+    --muted: #8b909c;
+    --track: #262a33;
+    --work: #4fd1a5;
+    --rest: #5aa9ff;
+    --prep: #f5b942;
+    --warn: #ff6b5b;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: calc(16px * var(--scale, 1)); -webkit-text-size-adjust: 100%; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main {
+    width: 100%;
+    max-width: calc(440px * var(--scale, 1));
+    padding: 24px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+  h1 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+  button, input, select, label, .slider { touch-action: manipulation; }
+
+  .err {
+    width: 100%; background: #3a1714; color: #ffd2cc; border: 1px solid var(--warn);
+    border-radius: 12px; padding: 10px 12px; font-size: 0.8125rem; line-height: 1.4;
+  }
+  .err[hidden] { display: none; }
+
+  /* ---------- Ring ---------- */
+  .ring { position: relative; width: min(74vw, 300px); aspect-ratio: 1; --c: var(--work); }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 10; }
+  .ring .track { stroke: var(--track); }
+  .ring .bar { stroke: var(--c); stroke-linecap: round; transition: stroke .3s; }
+  .ring.prep { --c: var(--prep); }
+  .ring.rest { --c: var(--rest); }
+  .ring.final, .ring.done { --c: var(--warn); }
+  .time {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; pointer-events: none;
+  }
+  .phase {
+    font-size: 0.9375rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--c); margin-bottom: 8px; min-height: 1.2em;
+  }
+  .digits {
+    font-size: clamp(52px, 18vw, 80px);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+    line-height: 1;
+  }
+  .ring.prep .digits, .ring.final .digits { color: var(--c); animation: pulse 1s ease-out infinite; }
+  .ring.done .digits { color: var(--c); }
+  .sub { margin-top: 10px; font-size: 0.8125rem; color: var(--muted); min-height: 1.2em; padding: 0 28px; }
+  @keyframes pulse { 0% { transform: scale(1.08); } 100% { transform: scale(1); } }
+
+  .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; max-width: 320px; min-height: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--track); transition: background .2s, transform .2s; }
+  .dot.done { background: var(--work); opacity: .55; }
+  .dot.cur { background: var(--work); transform: scale(1.3); }
+  .total { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: -8px; }
+
+  /* ---------- Buttons ---------- */
+  .controls { display: flex; gap: 10px; width: 100%; }
+  button {
+    font: inherit; border: 0; border-radius: 14px; padding: 16px 0;
+    font-size: 1rem; font-weight: 600; cursor: pointer; flex: 1;
+    color: var(--text); background: var(--panel);
+  }
+  #startBtn { background: var(--work); color: #062018; flex: 1.6; }
+  #startBtn.pause { background: #e7e9ee; color: #111; }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .35; cursor: default; transform: none; }
+
+  /* ---------- Einstellungen ---------- */
+  .section-title {
+    width: 100%; font-size: 0.75rem; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin: 6px 0 -12px 4px;
+  }
+  .options { width: 100%; background: var(--panel); border-radius: 14px; padding: 4px 16px; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 12px 0; font-size: 1rem; flex-wrap: wrap;
+  }
+  .row + .row, .presets + .row { border-top: 1px solid var(--track); }
+  .row > :last-child { margin-left: auto; }
+  .row small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+  select, input[type=number] {
+    font: inherit; font-size: max(16px, 1.15rem); background: var(--bg); color: var(--text);
+    border: 1px solid var(--track); border-radius: 8px; padding: .4em .45em;
+  }
+  select { max-width: 58%; }
+  select:disabled, input:disabled { opacity: .45; }
+  .num { display: flex; align-items: center; gap: 6px; flex: none; }
+  .num input {
+    width: 3.4em; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+  }
+  .num input::-webkit-outer-spin-button, .num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .unit { color: var(--muted); font-size: 0.9rem; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 0 12px; }
+  .presets button {
+    flex: 0 0 auto; padding: 7px 12px; font-size: 0.875rem; font-weight: 500;
+    border-radius: 999px; background: var(--bg); border: 1px solid var(--track);
+  }
+  .presets button.active, .seg button.active { border-color: var(--work); color: var(--work); }
+
+  .switch { position: relative; width: 48px; height: 28px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; z-index: 1; cursor: pointer; }
+  .slider { position: absolute; inset: 0; background: var(--track); border-radius: 999px; transition: background .2s; }
+  .slider::before {
+    content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: transform .2s;
+  }
+  .switch input:checked + .slider { background: var(--work); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+  .switch input:disabled + .slider { opacity: .45; }
+  .hint { font-size: 0.75rem; color: var(--muted); text-align: center; margin: 0; line-height: 1.5; }
+  .warning { color: var(--warn); }
+  .ok { color: var(--work); }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .seg button {
+    flex: 0 0 auto; padding: .35em .7em; font-weight: 600; border-radius: 999px;
+    background: var(--bg); border: 1px solid var(--track);
+  }
+  .seg button[data-scale="0.9"] { font-size: .8rem; }
+  .seg button[data-scale="1"] { font-size: .9rem; }
+  .seg button[data-scale="1.15"] { font-size: 1.05rem; }
+  .seg button[data-scale="1.3"] { font-size: 1.2rem; }
+  .seg button[data-scale="1.5"] { font-size: 1.35rem; }
+  .testbtn {
+    flex: 0 0 auto; padding: .5em 1em; font-size: 0.9375rem; border-radius: 999px;
+    background: var(--bg); border: 1px solid var(--track);
+  }
+  .teststate { width: 100%; font-size: 0.8125rem; color: var(--muted); line-height: 1.45; margin-top: -4px; }
+  .teststate:empty { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="err" id="err" hidden></div>
+
+  <h1>Sprechender Intervall-Timer</h1>
+
+  <div class="ring" id="ring">
+    <svg viewBox="0 0 220 220" aria-hidden="true">
+      <circle class="track" cx="110" cy="110" r="100"></circle>
+      <circle class="bar" id="bar" cx="110" cy="110" r="100"></circle>
+    </svg>
+    <div class="time">
+      <div class="phase" id="phase">Lädt …</div>
+      <div class="digits" id="digits">2:30</div>
+      <div class="sub" id="sub">Status A – hier läuft kein Skript</div>
+    </div>
+  </div>
+
+  <div class="dots" id="dots"></div>
+  <div class="total" id="total"></div>
+
+  <div class="controls">
+    <button id="startBtn" type="button">Start</button>
+    <button id="skipBtn" type="button" disabled>Weiter &#8250;&#8250;</button>
+    <button id="resetBtn" type="button">Zurück&shy;setzen</button>
+  </div>
+
+  <!-- Anzeige -->
+  <div class="section-title">Anzeige</div>
+  <div class="options">
+    <div class="row">
+      <span>Schriftgröße</span>
+      <div class="seg" id="scaleSeg">
+        <button type="button" data-scale="0.9" aria-label="Klein">A</button>
+        <button type="button" data-scale="1" aria-label="Normal">A</button>
+        <button type="button" data-scale="1.15" aria-label="Groß">A</button>
+        <button type="button" data-scale="1.3" aria-label="Sehr groß">A</button>
+        <button type="button" data-scale="1.5" aria-label="Riesig">A</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ablauf -->
+  <div class="section-title">Ablauf</div>
+  <div class="options">
+    <div class="row">
+      <span>Runden</span>
+      <div class="num"><input class="cfg" type="number" id="rounds" min="1" max="99" inputmode="numeric" aria-label="Anzahl Runden"></div>
+    </div>
+    <div class="presets" id="roundPresets">
+      <button type="button" data-n="1">1</button>
+      <button type="button" data-n="2">2</button>
+      <button type="button" data-n="3">3</button>
+      <button type="button" data-n="4">4</button>
+      <button type="button" data-n="5">5</button>
+    </div>
+    <div class="row">
+      <span>Rundendauer</span>
+      <div class="num">
+        <input class="cfg" type="number" id="workMin" min="0" max="99" inputmode="numeric" aria-label="Rundendauer Minuten"><span class="unit">min</span>
+        <input class="cfg" type="number" id="workSec" min="0" max="59" inputmode="numeric" aria-label="Rundendauer Sekunden"><span class="unit">s</span>
+      </div>
+    </div>
+    <div class="presets" id="workPresets">
+      <button type="button" data-sec="30">0:30</button>
+      <button type="button" data-sec="60">1:00</button>
+      <button type="button" data-sec="90">1:30</button>
+      <button type="button" data-sec="120">2:00</button>
+      <button type="button" data-sec="150">2:30</button>
+      <button type="button" data-sec="180">3:00</button>
+    </div>
+    <div class="row">
+      <span>Pause<small>zwischen den Runden</small></span>
+      <div class="num">
+        <input class="cfg" type="number" id="restMin" min="0" max="99" inputmode="numeric" aria-label="Pause Minuten"><span class="unit">min</span>
+        <input class="cfg" type="number" id="restSec" min="0" max="59" inputmode="numeric" aria-label="Pause Sekunden"><span class="unit">s</span>
+      </div>
+    </div>
+    <div class="presets" id="restPresets">
+      <button type="button" data-sec="15">15 s</button>
+      <button type="button" data-sec="30">30 s</button>
+      <button type="button" data-sec="45">45 s</button>
+      <button type="button" data-sec="60">1 min</button>
+    </div>
+    <div class="row">
+      <span>Nachlauf<small>nach der letzten Runde</small></span>
+      <div class="num">
+        <input class="cfg" type="number" id="coolMin" min="0" max="99" inputmode="numeric" aria-label="Nachlauf Minuten"><span class="unit">min</span>
+        <input class="cfg" type="number" id="coolSec" min="0" max="59" inputmode="numeric" aria-label="Nachlauf Sekunden"><span class="unit">s</span>
+      </div>
+    </div>
+    <div class="presets" id="coolPresets">
+      <button type="button" data-sec="0">aus</button>
+      <button type="button" data-sec="15">15 s</button>
+      <button type="button" data-sec="30">30 s</button>
+      <button type="button" data-sec="45">45 s</button>
+      <button type="button" data-sec="60">1 min</button>
+    </div>
+  </div>
+
+  <!-- Countdowns -->
+  <div class="section-title">Countdowns <span style="text-transform:none;letter-spacing:0">(0 = aus)</span></div>
+  <div class="options">
+    <div class="row">
+      <span>Vorlauf<small>vor der ersten Runde</small></span>
+      <div class="num"><input class="cfg" type="number" id="prepCd" min="0" max="60" inputmode="numeric" aria-label="Vorlauf in Sekunden"><span class="unit">s</span></div>
+    </div>
+    <div class="presets cdPresets" data-target="prepCd">
+      <button type="button" data-v="0">aus</button>
+      <button type="button" data-v="3">3 s</button>
+      <button type="button" data-v="5">5 s</button>
+      <button type="button" data-v="10">10 s</button>
+    </div>
+    <div class="row">
+      <span>Ende jeder Runde</span>
+      <div class="num"><input class="cfg" type="number" id="workCd" min="0" max="60" inputmode="numeric" aria-label="Countdown am Rundenende in Sekunden"><span class="unit">s</span></div>
+    </div>
+    <div class="presets cdPresets" data-target="workCd">
+      <button type="button" data-v="0">aus</button>
+      <button type="button" data-v="3">3 s</button>
+      <button type="button" data-v="5">5 s</button>
+      <button type="button" data-v="10">10 s</button>
+    </div>
+    <div class="row">
+      <span>Ende der Pause<small>gilt auch für den Nachlauf</small></span>
+      <div class="num"><input class="cfg" type="number" id="restCd" min="0" max="60" inputmode="numeric" aria-label="Countdown am Pausenende in Sekunden"><span class="unit">s</span></div>
+    </div>
+    <div class="presets cdPresets" data-target="restCd">
+      <button type="button" data-v="0">aus</button>
+      <button type="button" data-v="3">3 s</button>
+      <button type="button" data-v="5">5 s</button>
+      <button type="button" data-v="10">10 s</button>
+    </div>
+  </div>
+
+  <!-- Ansagen -->
+  <div class="section-title">Zeitansagen</div>
+  <div class="options">
+    <div class="row">
+      <span>Ansage alle</span>
+      <div class="num"><input class="cfg" type="number" id="interval" min="0" max="3600" inputmode="numeric" aria-label="Ansage-Intervall in Sekunden"><span class="unit">s</span></div>
+    </div>
+    <div class="presets" id="intPresets">
+      <button type="button" data-int="5">5 s</button>
+      <button type="button" data-int="6">6 s</button>
+      <button type="button" data-int="10">10 s</button>
+      <button type="button" data-int="12">12 s</button>
+      <button type="button" data-int="15">15 s</button>
+      <button type="button" data-int="20">20 s</button>
+      <button type="button" data-int="30">30 s</button>
+      <button type="button" data-int="60">1 min</button>
+      <button type="button" data-int="0">keine</button>
+    </div>
+    <div class="row">
+      <span>Intervall zählt ab</span>
+      <select class="cfg" id="align">
+        <option value="start">Rundenstart</option>
+        <option value="end">Ende (runde Zeiten)</option>
+      </select>
+    </div>
+    <div class="row">
+      <span>Zeitansagen auch in Pausen<small>und im Nachlauf</small></span>
+      <label class="switch"><input class="cfg" type="checkbox" id="restAnn"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <span>Wechsel ansagen<small>„Pause“, „Runde 2“, „Letzte Runde“</small></span>
+      <label class="switch"><input class="cfg" type="checkbox" id="roundAnn"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <!-- Ton -->
+  <div class="section-title">Ton</div>
+  <div class="options">
+    <div class="row">
+      <span>Sprachausgabe</span>
+      <label class="switch"><input type="checkbox" id="voiceOn" checked><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <span>Signaltöne</span>
+      <label class="switch"><input type="checkbox" id="beepOn" checked><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <span>Countdown zusätzlich piepen<small>falls die Stimme ausfällt</small></span>
+      <label class="switch"><input type="checkbox" id="cdBeep"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <span>Stimme</span>
+      <select id="voiceSelect"><option value="">Standard (Deutsch)</option></select>
+    </div>
+    <div class="row">
+      <span>Ton &amp; Stimme prüfen</span>
+      <button type="button" class="testbtn" id="testBtn">Testen</button>
+      <div class="teststate" id="testState"></div>
+    </div>
+  </div>
+
+  <p class="hint" id="hint">Signalton bei jedem Rundenstart und jeder Pause.<br>Ohne Sprachausgabe piept der Countdown.<br>Ton am Handy einschalten (Stummschalter aus).</p>
+</main>
+
+<script>
+  // Diagnose: zeigt, wie weit die Seite kommt, und meldet Fehler sichtbar
+  (function () {
+    var t0 = Date.now();
+    function show(msg) {
+      var b = document.getElementById('err');
+      if (!b) return;
+      b.hidden = false;
+      b.textContent = (b.textContent ? b.textContent + ' | ' : '') + msg;
+    }
+    window.__showErr = function (msg) { show('Fehler: ' + msg); };
+    var sub = document.getElementById('sub');
+    if (sub) sub.textContent = 'Status B – Hauptskript wird geladen …';
+    window.addEventListener('error', function (e) {
+      var t = e && e.target;
+      if (t && t !== window && t.tagName === 'SCRIPT') { show('Skriptdatei nicht geladen: ' + (t.src || '?')); return; }
+      show('Fehler: ' + (e && e.message ? e.message : 'unbekannt') + (e && e.lineno ? ' (Zeile ' + e.lineno + ')' : ''));
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e && e.reason; if (r && r.name === 'NotAllowedError') return;
+      show('Fehler: ' + String(r));
+    });
+    document.addEventListener('securitypolicyviolation', function (e) {
+      show('Blockiert (' + (e.violatedDirective || '?') + '): ' + (e.blockedURI || 'inline'));
+    });
+    setTimeout(function () {
+      if (!window.__booted) show('Status C – Hauptskript nach ' + Math.round((Date.now() - t0) / 1000) + ' s nicht gestartet.');
+    }, 4000);
+  })();
+</script>
+<script>
+(function () {
+  const showErr = (m) => { try { window.__showErr(m); } catch (e) {} };
+  const R = 100, CIRC = 2 * Math.PI * R;
+  const STORE_KEY = 'intervallTimer.settings.v1';
+  const $ = (id) => document.getElementById(id);
+
+  const ringEl = $('ring'), barEl = $('bar'), phaseEl = $('phase'), digitsEl = $('digits'), subEl = $('sub');
+  const dotsEl = $('dots'), totalEl = $('total');
+  const startBtn = $('startBtn'), skipBtn = $('skipBtn'), resetBtn = $('resetBtn');
+  const voiceOn = $('voiceOn'), beepOn = $('beepOn'), cdBeep = $('cdBeep'), voiceSelect = $('voiceSelect'), hintEl = $('hint');
+  const testBtn = $('testBtn'), testState = $('testState');
+  const intPresetsEl = $('intPresets');
+  const workPresetsEl = $('workPresets'), restPresetsEl = $('restPresets'), roundPresetsEl = $('roundPresets');
+  const coolPresetsEl = $('coolPresets');
+
+  barEl.style.strokeDasharray = CIRC;
+
+  // ---------- Sprache (früh, weil die Einstellungen darauf zugreifen) ----------
+  let synth = null;
+  try { if ('speechSynthesis' in window && window.speechSynthesis && window.SpeechSynthesisUtterance) synth = window.speechSynthesis; }
+  catch (e) { synth = null; }
+  let voices = [];
+
+  // ---------- Einstellungen ----------
+  const DEFAULTS = {
+    rounds: 5, work: 150, rest: 30, cool: 0,
+    prepCd: 5, workCd: 10, restCd: 5,
+    interval: 10, align: 'start', restAnn: false, roundAnn: true,
+    voiceOn: true, beepOn: true, cdBeep: false, voiceName: '', scale: 1
+  };
+  let C = Object.assign({}, DEFAULTS);
+
+  const clampInt = (v, lo, hi, dflt) => {
+    v = parseInt(v, 10);
+    if (isNaN(v)) return dflt;
+    return Math.max(lo, Math.min(hi, v));
+  };
+
+  const SCALES = [0.9, 1, 1.15, 1.3, 1.5];
+  const scaleSeg = $('scaleSeg');
+  function applyScale() {
+    if (SCALES.indexOf(C.scale) < 0) C.scale = 1;
+    document.documentElement.style.setProperty('--scale', C.scale);
+    scaleSeg.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseFloat(b.dataset.scale) === C.scale));
+  }
+  scaleSeg.addEventListener('click', e => {
+    const b = e.target.closest('button[data-scale]');
+    if (!b) return;
+    C.scale = parseFloat(b.dataset.scale);
+    applyScale();
+    save();
+  });
+
+  function writeInputs() {
+    applyScale();
+    $('rounds').value = C.rounds;
+    $('workMin').value = Math.floor(C.work / 60);
+    $('workSec').value = String(C.work % 60).padStart(2, '0');
+    $('restMin').value = Math.floor(C.rest / 60);
+    $('restSec').value = String(C.rest % 60).padStart(2, '0');
+    $('coolMin').value = Math.floor(C.cool / 60);
+    $('coolSec').value = String(C.cool % 60).padStart(2, '0');
+    $('prepCd').value = C.prepCd;
+    $('workCd').value = C.workCd;
+    $('restCd').value = C.restCd;
+    $('interval').value = C.interval;
+    $('align').value = C.align;
+    $('restAnn').checked = C.restAnn;
+    $('roundAnn').checked = C.roundAnn;
+    voiceOn.checked = C.voiceOn && !!synth;
+    beepOn.checked = C.beepOn;
+    cdBeep.checked = C.cdBeep;
+    intPresetsEl.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseInt(b.dataset.int, 10) === C.interval));
+    roundPresetsEl.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseInt(b.dataset.n, 10) === C.rounds));
+    workPresetsEl.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseInt(b.dataset.sec, 10) === C.work));
+    restPresetsEl.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseInt(b.dataset.sec, 10) === C.rest));
+    coolPresetsEl.querySelectorAll('button').forEach(b =>
+      b.classList.toggle('active', parseInt(b.dataset.sec, 10) === C.cool));
+    document.querySelectorAll('.cdPresets').forEach(p =>
+      p.querySelectorAll('button').forEach(b =>
+        b.classList.toggle('active', parseInt(b.dataset.v, 10) === C[p.dataset.target])));
+  }
+
+  function readInputs() {
+    C.rounds = clampInt($('rounds').value, 1, 99, C.rounds);
+    const wm = clampInt($('workMin').value, 0, 99, 0), ws = clampInt($('workSec').value, 0, 59, 0);
+    const w = wm * 60 + ws; if (w > 0) C.work = w;
+    const rm = clampInt($('restMin').value, 0, 99, 0), rs = clampInt($('restSec').value, 0, 59, 0);
+    C.rest = rm * 60 + rs;
+    const cm = clampInt($('coolMin').value, 0, 99, 0), cs = clampInt($('coolSec').value, 0, 59, 0);
+    C.cool = cm * 60 + cs;
+    C.prepCd = clampInt($('prepCd').value, 0, 60, C.prepCd);
+    C.workCd = clampInt($('workCd').value, 0, 60, C.workCd);
+    C.restCd = clampInt($('restCd').value, 0, 60, C.restCd);
+    C.interval = clampInt($('interval').value, 0, 3600, C.interval);
+    C.align = $('align').value === 'end' ? 'end' : 'start';
+    C.restAnn = $('restAnn').checked;
+    C.roundAnn = $('roundAnn').checked;
+  }
+
+  function save() {
+    C.voiceOn = voiceOn.checked;
+    C.beepOn = beepOn.checked;
+    C.cdBeep = cdBeep.checked;
+    C.voiceName = currentVoiceName() || C.voiceName;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(C)); } catch (e) {}
+  }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (s && typeof s === 'object') {
+        for (const k in DEFAULTS) if (k in s && typeof s[k] === typeof DEFAULTS[k]) C[k] = s[k];
+      }
+    } catch (e) {}
+  }
+
+  function onConfigChange() {
+    readInputs();
+    writeInputs();
+    save();
+    resetRun();
+  }
+  document.querySelectorAll('.cfg').forEach(el => {
+    el.addEventListener('change', onConfigChange);
+    if (el.tagName === 'INPUT' && el.type === 'number')
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
+  });
+  intPresetsEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-int]');
+    if (!b || b.disabled) return;
+    $('interval').value = b.dataset.int;
+    onConfigChange();
+  });
+  // Schnellauswahl Rundendauer / Pause
+  function bindDurPresets(el, minId, secId) {
+    el.addEventListener('click', e => {
+      const b = e.target.closest('button[data-sec]');
+      if (!b || b.disabled) return;
+      const v = parseInt(b.dataset.sec, 10);
+      $(minId).value = Math.floor(v / 60);
+      $(secId).value = v % 60;
+      onConfigChange();
+    });
+  }
+  bindDurPresets(workPresetsEl, 'workMin', 'workSec');
+  bindDurPresets(coolPresetsEl, 'coolMin', 'coolSec');
+  document.querySelectorAll('.cdPresets').forEach(p => p.addEventListener('click', e => {
+    const b = e.target.closest('button[data-v]');
+    if (!b || b.disabled) return;
+    $(p.dataset.target).value = b.dataset.v;
+    onConfigChange();
+  }));
+  roundPresetsEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-n]');
+    if (!b || b.disabled) return;
+    $('rounds').value = b.dataset.n;
+    onConfigChange();
+  });
+  bindDurPresets(restPresetsEl, 'restMin', 'restSec');
+
+  function setLocked(locked) {
+    document.querySelectorAll('.cfg').forEach(el => el.disabled = locked);
+    document.querySelectorAll('.presets button').forEach(b => b.disabled = locked);
+  }
+
+  // ---------- Sprache ----------
+  if (!synth) {
+    hintEl.innerHTML = '<span class="warning">Dieser Browser bietet hier keine Sprachausgabe – der Countdown piept stattdessen.</span>';
+    voiceOn.checked = false;
+    voiceOn.disabled = true;
+  }
+  function currentVoiceName() {
+    const v = voices[parseInt(voiceSelect.value, 10)];
+    return v ? v.name : '';
+  }
+  function loadVoices() {
+    if (!synth) return;
+    let all = [];
+    try { all = synth.getVoices() || []; } catch (e) { all = []; }
+    const keep = currentVoiceName() || C.voiceName;
+    // Lokale Stimmen zuerst – Online-Stimmen (z. B. „Google Deutsch“ in Chrome) brechen gern ab
+    voices = all.filter(v => /^de(-|_|$)/i.test(v.lang || ''))
+      .sort((a, b) => (b.localService ? 1 : 0) - (a.localService ? 1 : 0));
+    voiceSelect.innerHTML = '<option value="">Standard (Deutsch)</option>';
+    voices.forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = v.name + ' (' + v.lang + ')' + (v.localService ? '' : ' · online');
+      voiceSelect.appendChild(o);
+    });
+    let idx = keep ? voices.findIndex(v => v.name === keep) : -1;
+    if (idx < 0) idx = voices.findIndex(v => /de-DE/i.test(v.lang) && v.localService);
+    if (idx < 0) idx = voices.findIndex(v => /de-DE/i.test(v.lang));
+    if (idx < 0 && voices.length) idx = 0;
+    voiceSelect.value = idx >= 0 ? String(idx) : '';
+  }
+
+  // Zustand der Sprachausgabe.
+  // Läuft eine Ansage nicht an (Fehler oder keine Reaktion), wird der Countdown automatisch gepiept.
+  let speechOk = false;        // mindestens eine Ansage ist tatsächlich gestartet
+  let speechFails = 0;         // Fehlversuche in Folge
+  let lastSpeechError = '';
+  let realBusy = false;        // eine echte (hörbare) Ansage ist in der Warteschlange oder läuft
+  let speakTimer = null, watchTimer = null;
+  const keepAlive = [];        // Referenzen halten – Chrome verwirft sonst Ansagen mitten im Satz
+
+  const speechUsable = () => !!synth && voiceOn.checked && speechFails < 2;
+
+  function noteFail(reason) {
+    speechFails++;
+    lastSpeechError = reason;
+    if (speechFails === 2) showSpeechWarning();
+  }
+  function showSpeechWarning() {
+    hintEl.innerHTML = '<span class="warning">Die Sprachausgabe startet in diesem Browser nicht (' +
+      lastSpeechError + '). Der Countdown piept jetzt stattdessen.</span><br>Mit „Testen“ unter „Ton“ kannst du es erneut prüfen.';
+  }
+
+  function makeUtt(text, vol) {
+    const u = new SpeechSynthesisUtterance(text);
+    const v = voices[parseInt(voiceSelect.value, 10)];
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'de-DE';
+    u.rate = 1.05;
+    u.volume = vol == null ? 1 : vol;
+    keepAlive.push(u);
+    if (keepAlive.length > 12) keepAlive.shift();
+    return u;
+  }
+
+  function cancelSpeech() {
+    clearTimeout(speakTimer); speakTimer = null;
+    clearTimeout(watchTimer); watchTimer = null;
+    realBusy = false;
+    if (synth) { try { synth.cancel(); } catch (e) {} }
+  }
+
+  // speak(text, delayMs, cb): Ansage sprechen. Läuft schon eine Ansage, wird sie abgebrochen
+  // und die neue kurz danach gesprochen (sonst verschlucken manche Browser die neue).
+  // cb(ok, info) meldet, ob die Ansage wirklich angelaufen ist (für „Testen“).
+  function speak(text, delayMs, cb) {
+    if (!synth || !voiceOn.checked) { if (cb) cb(false, 'Sprachausgabe aus'); return; }
+    clearTimeout(speakTimer);
+    let wait = delayMs || 0;
+    if (realBusy) {
+      clearTimeout(watchTimer);
+      try { synth.cancel(); } catch (e) {}
+      realBusy = false;
+      wait = Math.max(wait, 90);
+    }
+    const go = () => {
+      speakTimer = null;
+      if (!voiceOn.checked) return;
+      let started = false;
+      try {
+        const u = makeUtt(text);
+        u.onstart = () => {
+          started = true;
+          clearTimeout(watchTimer);
+          speechOk = true;
+          if (speechFails >= 2) restoreHint();
+          speechFails = 0;
+          if (cb) { cb(true); cb = null; }
+        };
+        u.onend = () => { realBusy = false; if (!started && cb) { cb(false, 'sofort beendet'); cb = null; } };
+        u.onerror = (ev) => {
+          realBusy = false;
+          clearTimeout(watchTimer);
+          const code = ev && ev.error ? ev.error : 'Fehler';
+          if (code === 'interrupted' || code === 'canceled') return;   // selbst abgebrochen: normal
+          noteFail(code);
+          if (cb) { cb(false, code); cb = null; }
+        };
+        realBusy = true;
+        try { if (synth.paused) synth.resume(); } catch (e) {}
+        synth.speak(u);
+        clearTimeout(watchTimer);
+        watchTimer = setTimeout(() => {
+          if (started) return;
+          realBusy = false;
+          try { synth.cancel(); } catch (e) {}   // hängende Warteschlange leeren
+          noteFail('keine Reaktion');
+          if (cb) { cb(false, 'keine Reaktion'); cb = null; }
+        }, 2500);
+      } catch (e) {
+        realBusy = false;
+        noteFail(e && e.message ? e.message : 'Fehler');
+        if (cb) { cb(false, e && e.message ? e.message : 'Fehler'); cb = null; }
+      }
+    };
+    if (wait > 0) speakTimer = setTimeout(go, wait); else go();
+  }
+
+  // Im Klick aufrufen: stille Ansage schaltet die Sprachausgabe frei (iPhone, Safari).
+  // Sie wird NICHT abgebrochen – sonst gilt sie in Safari nicht als Freischaltung.
+  function unlockSpeech() {
+    if (!synth || !voiceOn.checked || realBusy) return;
+    try {
+      if (!voices.length) loadVoices();
+      const u = makeUtt(' ', 0);
+      synth.speak(u);
+    } catch (e) {}
+  }
+  const defaultHint = hintEl.innerHTML;
+  function restoreHint() { hintEl.innerHTML = defaultHint; }
+
+  function phrase(sec) {
+    const m = Math.floor(sec / 60), s = sec % 60, p = [];
+    if (m === 1) p.push('eine Minute'); else if (m > 1) p.push(m + ' Minuten');
+    if (s === 1) p.push('eine Sekunde'); else if (s > 1) p.push(s + ' Sekunden');
+    return p.join(' ');
+  }
+
+  // ---------- Töne ----------
+  // Töne werden als kleine WAV-Dateien erzeugt und über ein <audio>-Element abgespielt
+  // (zuverlässiger am iPhone). Web Audio bleibt als Rückfall erhalten.
+  const RATE = 22050;
+  function makeWav(seq, gainAll) {
+    const lenSec = Math.max.apply(null, seq.map(x => x[1] + x[2])) + 0.08;
+    const n = Math.ceil(lenSec * RATE);
+    const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+    str(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, RATE, true); dv.setUint32(28, RATE * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    str(36, 'data'); dv.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) {
+      const t = i / RATE;
+      let v = 0;
+      for (const [f, d, l, vol] of seq) {
+        const x = t - d;
+        if (x < 0 || x > l) continue;
+        const env = Math.min(1, x / 0.012) * Math.pow(1 - x / l, 1.6);
+        v += Math.sin(2 * Math.PI * f * x) * env * (vol || 0.5);
+      }
+      v = Math.max(-1, Math.min(1, v * (gainAll || 1)));
+      dv.setInt16(44 + i * 2, v * 32767, true);
+    }
+    // data:-URL statt blob: – funktioniert auch in eingebetteten Ansichten zuverlässig
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  const SOUNDS = {
+    first: [[523, 0, 0.16, 0.5], [659, 0.17, 0.16, 0.5], [784, 0.34, 0.16, 0.5], [1047, 0.51, 0.75, 0.6]],
+    work:  [[660, 0, 0.15], [990, 0.18, 0.4]],
+    rest:  [[880, 0, 0.18], [587, 0.22, 0.45]],
+    tick:  [[520, 0, 0.1, 0.4]],
+    end:   [[880, 0, 0.18], [880, 0.25, 0.18], [1320, 0.5, 0.8]],
+    silent:[[20, 0, 0.05, 0.0001]]
+  };
+  const urls = {};
+  for (const k in SOUNDS) { try { urls[k] = makeWav(SOUNDS[k]); } catch (e) {} }
+  let player = null;
+  try { player = new Audio(); player.preload = 'auto'; } catch (e) { player = null; }
+  let playerOk = false;
+
+  let audioCtx = null;
+  function ensureAudio() {
+    // im Klick aufrufen: schaltet <audio> und Web Audio frei
+    if (player && !playerOk && urls.silent) {
+      try {
+        player.src = urls.silent;
+        const p = player.play();
+        if (p && p.then) p.then(() => { playerOk = true; }).catch(() => {});
+        else playerOk = true;
+      } catch (e) {}
+    }
+    try {
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) audioCtx = new AC();
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        const r = audioCtx.resume();
+        if (r && r.catch) r.catch(() => {});
+      }
+    } catch (e) { audioCtx = null; }
+  }
+  function tone(freq, at, len, vol) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(at);
+    o.stop(at + len + 0.05);
+  }
+  function playWebAudio(seq) {
+    if (!audioCtx) return;
+    try {
+      const t = audioCtx.currentTime + 0.03;
+      seq.forEach(([f, d, l, v]) => tone(f, t + d, l, Math.min(0.4, (v || 0.5) * 0.7)));
+    } catch (e) {}
+  }
+  function play(name) {
+    if (!beepOn.checked && name !== 'tick') return;
+    if (player && urls[name]) {
+      try {
+        player.pause();
+        player.src = urls[name];
+        try { player.currentTime = 0; } catch (e) {}
+        const p = player.play();
+        if (p && p.catch) p.catch(() => playWebAudio(SOUNDS[name]));
+        return;
+      } catch (e) {}
+    }
+    playWebAudio(SOUNDS[name]);
+  }
+  const afterSound = (name) => beepOn.checked
+    ? Math.round((Math.max.apply(null, SOUNDS[name].map(x => x[1] + x[2])) + 0.15) * 1000) : 0;
+  const firstBeep = () => play('first');
+  const workBeep  = () => play('work');
+  const restBeep  = () => play('rest');
+  const tickBeep  = () => play('tick');
+  const endBeep   = () => play('end');
+
+  // ---------- Bildschirm wach halten ----------
+  let wakeLock = null;
+  function requestWakeLock() {
+    try {
+      if (!('wakeLock' in navigator)) return;
+      navigator.wakeLock.request('screen').then(l => { wakeLock = l; }).catch(() => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+  function releaseWakeLock() {
+    try { if (wakeLock) { const r = wakeLock.release(); if (r && r.catch) r.catch(() => {}); } } catch (e) {}
+    wakeLock = null;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && running) requestWakeLock();
+  });
+
+  // ---------- Ablaufplan ----------
+  function buildSchedule() {
+    const segs = [];
+    let t = 0;
+    const add = (type, dur, round) => {
+      if (dur <= 0) return;
+      segs.push({ type, dur, round, start: t, end: t + dur * 1000 });
+      t += dur * 1000;
+    };
+    add('prep', C.prepCd, 0);
+    for (let r = 1; r <= C.rounds; r++) {
+      add('work', C.work, r);
+      if (r < C.rounds) add('rest', C.rest, r);
+    }
+    add('cool', C.cool, C.rounds);
+    return { segs, total: t };
+  }
+
+  let sched = buildSchedule();
+  let active = false;
+  let running = false;
+  let finished = false;
+  let segIdx = -1, lastSec = 0;
+  let elapsedBefore = 0, runStartedAt = 0;
+  let intervalId = null, rafId = null;
+
+  const elapsed = () => elapsedBefore + (running ? performance.now() - runStartedAt : 0);
+  const fmt = (sec) => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+
+  function segIndexAt(e) {
+    let i = Math.max(0, segIdx);
+    while (i < sched.segs.length - 1 && e >= sched.segs[i].end) i++;
+    return i;
+  }
+  function cdFor(seg) {
+    if (seg.type === 'prep') return seg.dur;
+    return seg.type === 'work' ? C.workCd : C.restCd;
+  }
+  function countNum(n) {
+    const sp = speechUsable();
+    if (sp) speak(String(n));
+    if (!sp || cdBeep.checked) tickBeep();
+  }
+
+  function enterSeg(i) {
+    segIdx = i;
+    const seg = sched.segs[i];
+    lastSec = seg.dur;
+    if (seg.type === 'prep') {
+      countNum(seg.dur);
+    } else if (seg.type === 'work') {
+      if (seg.round === 1) {
+        if (realBusy) cancelSpeech();
+        firstBeep();
+      } else {
+        workBeep();
+        if (C.roundAnn) speak(seg.round === C.rounds ? 'Letzte Runde' : 'Runde ' + seg.round, afterSound('work'));
+      }
+    } else if (seg.type === 'cool') {
+      restBeep();
+      if (C.roundAnn) speak('Nachlauf', afterSound('rest'));
+    } else {
+      restBeep();
+      if (C.roundAnn) speak('Pause', afterSound('rest'));
+    }
+  }
+
+  function announceIn(seg, s) {
+    const cd = cdFor(seg);
+    if (cd && s <= cd) { countNum(s); return; }
+    if ((seg.type === 'rest' || seg.type === 'cool') && !C.restAnn) return;
+    const step = C.interval;
+    if (!step) return;
+    const ref = C.align === 'end' ? s : seg.dur - s;
+    if (ref > 0 && ref % step === 0) speak(phrase(s));
+  }
+
+  function tick() {
+    if (!running) return;
+    try {
+      const e = elapsed();
+      if (e >= sched.total) { finish(); return; }
+      const i = segIndexAt(e);
+      if (i !== segIdx) enterSeg(i);
+      const seg = sched.segs[i];
+      const s = Math.ceil((seg.end - e) / 1000);
+      if (s < lastSec) {
+        lastSec = s;
+        if (s > 0) announceIn(seg, s);
+      }
+    } catch (err) { showErr(err && err.message ? err.message : String(err)); }
+  }
+
+  // ---------- Anzeige ----------
+  function renderDots(curRound, inRest) {
+    if (C.rounds > 30) { dotsEl.innerHTML = ''; return; }
+    if (dotsEl.children.length !== C.rounds) {
+      dotsEl.innerHTML = '';
+      for (let r = 0; r < C.rounds; r++) {
+        const d = document.createElement('span');
+        d.className = 'dot';
+        dotsEl.appendChild(d);
+      }
+    }
+    Array.prototype.forEach.call(dotsEl.children, (d, k) => {
+      const r = k + 1;
+      d.classList.toggle('done', finished || r < curRound || (inRest && r === curRound));
+      d.classList.toggle('cur', !finished && !inRest && r === curRound);
+    });
+  }
+
+  function setRingClass(cls) {
+    ringEl.setAttribute('class', 'ring' + (cls ? ' ' + cls : ''));
+  }
+
+  function render() {
+    if (finished) {
+      setRingClass('done');
+      phaseEl.textContent = 'Fertig';
+      digitsEl.textContent = '0:00';
+      subEl.textContent = C.rounds === 1 ? 'Runde geschafft' : 'Alle ' + C.rounds + ' Runden geschafft';
+      barEl.style.strokeDashoffset = CIRC;
+      totalEl.textContent = 'Gesamtzeit ' + fmt(Math.round(sched.total / 1000));
+      renderDots(C.rounds + 1, false);
+      return;
+    }
+    if (!active) {
+      setRingClass('');
+      phaseEl.textContent = 'Bereit';
+      digitsEl.textContent = fmt(C.work);
+      subEl.textContent = C.rounds + (C.rounds === 1 ? ' Runde' : ' Runden') +
+        (C.rounds > 1 ? (C.rest > 0 ? ' · Pause ' + fmt(C.rest) : ' · ohne Pause') : '') +
+        (C.cool > 0 ? ' · Nachlauf ' + fmt(C.cool) : '');
+      barEl.style.strokeDashoffset = 0;
+      totalEl.textContent = 'Gesamt ' + fmt(Math.round(sched.total / 1000)) +
+        (C.prepCd > 0 ? ' (inkl. ' + C.prepCd + ' s Vorlauf vor Runde 1)' : '');
+      renderDots(0, false);
+      return;
+    }
+    const e = Math.min(elapsed(), sched.total);
+    const i = segIdx >= 0 ? segIndexAt(e) : 0;
+    const seg = sched.segs[i];
+    const remMs = Math.max(0, seg.end - e);
+    const s = Math.ceil(remMs / 1000);
+    const cd = cdFor(seg);
+    barEl.style.strokeDashoffset = CIRC * (1 - remMs / (seg.dur * 1000));
+
+    if (seg.type === 'prep') {
+      setRingClass('prep');
+      phaseEl.textContent = 'Gleich geht’s los';
+      digitsEl.textContent = String(s);
+      subEl.textContent = 'Runde 1 von ' + C.rounds;
+      renderDots(1, true);
+    } else if (seg.type === 'work') {
+      setRingClass(cd && s <= cd && running ? 'final' : '');
+      phaseEl.textContent = 'Runde ' + seg.round + ' / ' + C.rounds;
+      digitsEl.textContent = fmt(s);
+      subEl.textContent = running ? (seg.round === C.rounds ? 'Letzte Runde' : '') : 'Pausiert';
+      renderDots(seg.round, false);
+    } else if (seg.type === 'cool') {
+      setRingClass(cd && s <= cd && running ? 'final' : 'rest');
+      phaseEl.textContent = 'Nachlauf';
+      digitsEl.textContent = fmt(s);
+      subEl.textContent = running ? (C.rounds === 1 ? 'Runde geschafft' : 'Alle Runden geschafft') : 'Pausiert';
+      renderDots(C.rounds, true);
+    } else {
+      setRingClass(cd && s <= cd && running ? 'final' : 'rest');
+      phaseEl.textContent = 'Pause';
+      digitsEl.textContent = fmt(s);
+      subEl.textContent = running ? 'Als Nächstes: Runde ' + (seg.round + 1) : 'Pausiert';
+      renderDots(seg.round, true);
+    }
+    totalEl.textContent = 'Gesamt noch ' + fmt(Math.ceil((sched.total - e) / 1000));
+  }
+
+  function frame() {
+    try { render(); } catch (e) {}
+    if (running) rafId = requestAnimationFrame(frame);
+  }
+
+  // ---------- Steuerung ----------
+  function startLoops() {
+    clearInterval(intervalId);
+    intervalId = setInterval(tick, 100);
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(frame);
+  }
+  function stopLoops() {
+    clearInterval(intervalId);
+    cancelAnimationFrame(rafId);
+  }
+
+  function start() {
+    ensureAudio();
+    unlockSpeech();
+    if (!active) {
+      sched = buildSchedule();
+      finished = false;
+      elapsedBefore = 0;
+      segIdx = -1;
+      active = true;
+    }
+    running = true;
+    runStartedAt = performance.now();
+    startBtn.textContent = 'Pause';
+    startBtn.classList.add('pause');
+    skipBtn.disabled = false;
+    setLocked(true);
+    tick();                     // Vorlauf-Zahl bzw. Startsignal direkt im Klick
+    startLoops();
+    requestWakeLock();
+  }
+
+  function pause() {
+    elapsedBefore = elapsed();
+    running = false;
+    stopLoops();
+    cancelSpeech();
+    startBtn.textContent = 'Weiter';
+    startBtn.classList.remove('pause');
+    skipBtn.disabled = true;
+    render();
+    releaseWakeLock();
+  }
+
+  function skip() {
+    if (!running || segIdx < 0) return;
+    const seg = sched.segs[segIdx];
+    elapsedBefore = seg.end;
+    runStartedAt = performance.now();
+    cancelSpeech();
+    tick();
+    render();
+  }
+
+  function finish() {
+    running = false;
+    active = false;
+    finished = true;
+    stopLoops();
+    startBtn.textContent = 'Neu starten';
+    startBtn.classList.remove('pause');
+    skipBtn.disabled = true;
+    setLocked(false);
+    endBeep();
+    speak(C.rounds === 1 ? 'Fertig!' : 'Fertig! Alle Runden geschafft.', afterSound('end'));
+    if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300]); } catch (e) {} }
+    render();
+    releaseWakeLock();
+  }
+
+  function resetRun() {
+    running = false;
+    active = false;
+    finished = false;
+    stopLoops();
+    cancelSpeech();
+    sched = buildSchedule();
+    segIdx = -1;
+    elapsedBefore = 0;
+    startBtn.textContent = 'Start';
+    startBtn.classList.remove('pause');
+    skipBtn.disabled = true;
+    setLocked(false);
+    render();
+    releaseWakeLock();
+  }
+
+  // ---------- Test ----------
+  function runTest() {
+    ensureAudio();
+    loadVoices();
+    const lines = [];
+    const nDe = voices.length;
+    if (!synth) {
+      lines.push('<span class="warning">✗ Keine Sprachausgabe in diesem Browser.</span>');
+    } else if (!voiceOn.checked) {
+      lines.push('Sprachausgabe ist ausgeschaltet.');
+    } else {
+      lines.push(nDe ? nDe + (nDe === 1 ? ' deutsche Stimme' : ' deutsche Stimmen') + ' gefunden.'
+        : '<span class="warning">Keine deutsche Stimme gefunden.</span> Am Mac: Systemeinstellungen › Bedienungshilfen › Gesprochene Inhalte › Systemstimme › Stimmen verwalten › Deutsch. Am iPhone: Einstellungen › Bedienungshilfen › Gesprochene Inhalte › Stimmen › Deutsch.');
+    }
+    const show = (extra) => { testState.innerHTML = lines.concat(extra ? [extra] : []).join('<br>'); };
+    show('Teste …');
+    play('work');
+    if (!synth || !voiceOn.checked) { show('Du solltest jetzt einen Signalton hören.'); return; }
+    if (realBusy) cancelSpeech();
+    speechFails = 0;
+    speak('Test. Zehn Sekunden. Drei, zwei, eins.', afterSound('work'), (ok, info) => {
+      if (ok) { restoreHint(); show('<span class="ok">✓ Sprachausgabe läuft.</span>'); }
+      else show('<span class="warning">✗ Sprachausgabe startet nicht (' + (info || 'unbekannt') +
+        ').</span> Der Countdown piept dann stattdessen. Tipp: Seite einmal neu laden; am Mac ggf. in Chrome statt Safari öffnen.');
+    });
+  }
+
+  // ---------- Ereignisse ----------
+  const guard = (fn) => function () {
+    try { return fn.apply(this, arguments); } catch (e) { showErr(e && e.message ? e.message : String(e)); }
+  };
+  startBtn.addEventListener('click', guard(() => { running ? pause() : start(); }));
+  skipBtn.addEventListener('click', guard(skip));
+  resetBtn.addEventListener('click', guard(resetRun));
+  testBtn.addEventListener('click', guard(runTest));
+  voiceOn.addEventListener('change', () => { if (!voiceOn.checked) cancelSpeech(); save(); });
+  beepOn.addEventListener('change', save);
+  cdBeep.addEventListener('change', save);
+  voiceSelect.addEventListener('change', guard(() => { save(); if (!running) { ensureAudio(); speak('Test. Runde 2'); } }));
+
+  document.addEventListener('keydown', (e) => {
+    const tag = e.target.tagName;
+    if (e.code === 'Space' && tag !== 'SELECT' && tag !== 'INPUT' && tag !== 'BUTTON') {
+      e.preventDefault();
+      startBtn.click();
+    }
+  });
+
+  // ---------- Init ----------
+  try { load(); } catch (e) {}
+  if (synth) {
+    try {
+      loadVoices();
+      if (synth.addEventListener) synth.addEventListener('voiceschanged', loadVoices);
+      else synth.onvoiceschanged = loadVoices;
+      setTimeout(loadVoices, 800);
+    } catch (e) {}
+  }
+  writeInputs();
+  resetRun();
+  window.__booted = true;
+})();
+
+</script>
+<noscript><p class="hint warning" style="padding:0 20px">JavaScript ist in dieser Ansicht ausgeschaltet – der Timer kann hier nicht laufen.</p></noscript>
+</body>
+</html>
